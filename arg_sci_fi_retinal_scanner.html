@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100 select-none overflow-hidden">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AEGIS Ocular Retinal Scanner - ARG Interface</title>
+    <!-- Tailwind CSS -->
+    <script id="tailwindCdnScript" src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- MediaPipe Face Mesh for AI Eye & Facial Landmark Detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        mono: ['Share Tech Mono', 'monospace'],
+                    },
+                    colors: {
+                        cyanGlow: '#00f3ff',
+                        crimsonGlow: '#ff0055',
+                        amberGlow: '#ffb700',
+                        matrixGreen: '#00ff66'
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'spin-slow': 'spin 12s linear infinite',
+                        'spin-reverse': 'spin-reverse 15s linear infinite',
+                        'radar-sweep': 'sweep 2.5s ease-in-out infinite alternate',
+                    },
+                    keyframes: {
+                        'spin-reverse': {
+                            '0%': { transform: 'rotate(0deg)' },
+                            '100%': { transform: 'rotate(-360deg)' },
+                        },
+                        'sweep': {
+                            '0%': { top: '5%' },
+                            '100%': { top: '95%' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            touch-action: manipulation;
+            background-color: #030712;
+            overflow: hidden;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* CRT Screen Effect Overlay */
+        .crt-overlay {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.35) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Glowing text & borders */
+        .glow-cyan {
+            text-shadow: 0 0 8px rgba(0, 243, 255, 0.7), 0 0 16px rgba(0, 243, 255, 0.4);
+        }
+        .glow-red {
+            text-shadow: 0 0 8px rgba(255, 0, 85, 0.7), 0 0 16px rgba(255, 0, 85, 0.4);
+        }
+        .glow-amber {
+            text-shadow: 0 0 8px rgba(255, 183, 0, 0.7), 0 0 16px rgba(255, 183, 0, 0.4);
+        }
+        .glow-green {
+            text-shadow: 0 0 8px rgba(0, 255, 102, 0.7), 0 0 16px rgba(0, 255, 102, 0.4);
+        }
+
+        .border-glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.3), inset 0 0 15px rgba(0, 243, 255, 0.15);
+        }
+
+        /* Vignette gradient */
+        .vignette {
+            background: radial-gradient(circle, transparent 50%, rgba(3, 7, 18, 0.85) 90%, rgba(3, 7, 18, 1) 100%);
+        }
+
+        /* Glitch effect styles */
+        .glitch-mode {
+            animation: glitch-anim 0.2s infinite;
+            filter: hue-rotate(90deg) contrast(150%);
+        }
+
+        @keyframes glitch-anim {
+            0% { transform: translate(0) }
+            20% { transform: translate(-3px, 3px) }
+            40% { transform: translate(-3px, -3px) }
+            60% { transform: translate(3px, 3px) }
+            80% { transform: translate(3px, -3px) }
+            100% { transform: translate(0) }
+        }
+
+        /* Hide scrollbars */
+        ::-webkit-scrollbar { display: none; }
+
+        /* Loading veil: plain CSS (not Tailwind) so it paints immediately,
+           covering the brief flash-of-unstyled-content while the Tailwind
+           CDN script builds its stylesheet on first load. */
+        #loadingVeil {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #030712;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            transition: opacity 0.4s ease;
+        }
+        #loadingVeil.veil-hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #loadingVeil .veil-ring {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: 2px solid rgba(0, 243, 255, 0.25);
+            border-top-color: #00f3ff;
+            animation: veil-spin 0.9s linear infinite;
+        }
+        #loadingVeil .veil-label {
+            font-family: 'Share Tech Mono', monospace;
+            color: #00f3ff;
+            font-size: 11px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+        @keyframes veil-spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="h-full w-full relative select-none flex flex-col justify-between">
+
+    <!-- Loading Veil: hides the raw/unstyled flash before Tailwind's CDN script finishes -->
+    <div id="loadingVeil">
+        <div class="veil-ring"></div>
+        <div class="veil-label">AEGIS // CALIBRATING HUD</div>
+    </div>
+
+    <!-- CRT Overlay & Vignette -->
+    <div class="absolute inset-0 crt-overlay z-30 pointer-events-none"></div>
+    <div class="absolute inset-0 vignette z-20 pointer-events-none"></div>
+
+    <!-- MAIN CAMERA / CANVAS WORKSPACE -->
+    <div class="relative w-full h-full flex-1 flex items-center justify-center overflow-hidden">
+        
+        <!-- Hidden Video Input element -->
+        <video id="webcam" class="hidden" playsinline webkit-playsinline></video>
+
+        <!-- Simulated Eye Image for Demo mode without camera -->
+        <canvas id="simulatedEyeCanvas" class="hidden"></canvas>
+
+        <!-- Dynamic Overlay Canvas (Video + HUD Graphics) -->
+        <canvas id="hudCanvas" class="absolute inset-0 w-full h-full object-cover z-10"></canvas>
+
+        <!-- TOP BAR: AEGIS Security Header -->
+        <div class="absolute top-0 left-0 right-0 z-40 p-4 flex justify-between items-start bg-gradient-to-b from-slate-950/90 via-slate-950/50 to-transparent">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
+                    <h1 class="font-orbitron font-extrabold text-lg sm:text-xl tracking-wider text-cyan-400 glow-cyan">
+                        AEGIS <span class="text-xs font-normal text-slate-400 tracking-normal border border-cyan-500/40 px-1.5 py-0.5 rounded ml-1">v4.09-ARG</span>
+                    </h1>
+                </div>
+                <p id="subHeaderStatus" class="text-xs text-slate-400 mt-0.5 tracking-widest uppercase">
+                    SYSTEM: SECURE // FACIAL RECON RECEPTOR
+                </p>
+            </div>
+
+            <div class="text-right">
+                <div id="clearanceBadge" class="inline-block bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 font-orbitron text-xs px-2.5 py-1 rounded font-bold uppercase tracking-wider glow-cyan">
+                    LEVEL 4 CLEARANCE
+                </div>
+                <p id="scanModeLabel" class="text-[10px] text-cyan-400/80 mt-1 uppercase font-mono">
+                    MODE: RETINAL VASCULAR
+                </p>
+                <p id="simModeBadge" class="hidden text-[10px] text-amber-400 mt-0.5 uppercase font-mono tracking-wider glow-amber">
+                    <i class="fa-solid fa-triangle-exclamation"></i> SIMULATION ACTIVE
+                </p>
+            </div>
+        </div>
+
+        <!-- CENTER EYE TARGET HUD OVERLAY (HTML HUD graphics over Canvas) -->
+        <div id="targetFrame" class="absolute z-20 pointer-events-none transition-all duration-300 flex items-center justify-center w-72 h-72 sm:w-80 sm:h-80">
+            <!-- Reticle Rotating Outer Rings -->
+            <div id="outerRing" class="absolute inset-0 rounded-full border-2 border-dashed border-cyan-500/40 animate-spin-slow"></div>
+            <div id="innerRing" class="absolute inset-3 rounded-full border border-cyan-400/30 animate-spin-reverse"></div>
+            
+            <!-- Targeting Brackets -->
+            <div class="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-cyan-400"></div>
+            <div class="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-cyan-400"></div>
+            <div class="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-cyan-400"></div>
+            <div class="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-cyan-400"></div>
+
+            <!-- Sweeping Laser Scan Line -->
+            <div id="laserLine" class="absolute w-full h-0.5 bg-cyan-400 shadow-[0_0_15px_#00f3ff] animate-radar-sweep opacity-80"></div>
+
+            <!-- Status Box inside Target HUD -->
+            <div class="absolute bottom-4 text-center">
+                <span id="targetLockStatus" class="bg-slate-900/90 border border-cyan-500/50 text-cyan-400 font-orbitron text-[11px] px-3 py-1 rounded tracking-widest uppercase glow-cyan shadow-lg">
+                    SEARCHING FOR OCULAR TARGET...
+                </span>
+            </div>
+        </div>
+
+        <!-- SIDE DIAGNOSTIC PANELS (Floating HUD elements) -->
+        <div class="absolute left-3 top-24 bottom-28 z-20 hidden sm:flex flex-col justify-between w-48 pointer-events-none text-[11px]">
+            <div id="telemetryPanel" class="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded backdrop-blur-sm">
+                <div class="text-cyan-400 font-orbitron mb-1 border-b border-slate-800 pb-1 flex justify-between">
+                    <span>EYE TELEMETRY</span>
+                    <i class="fa-solid fa-eye text-cyan-400"></i>
+                </div>
+                <div class="space-y-1 text-slate-400">
+                    <div class="flex justify-between"><span>PUPIL DILATION:</span> <span id="telemetryPupil" class="text-cyan-300 font-mono">--</span></div>
+                    <div class="flex justify-between"><span>IRIS DIAMETER:</span> <span id="telemetryIris" class="text-cyan-300 font-mono">--</span></div>
+                    <div class="flex justify-between"><span>SACCADE RATE:</span> <span id="telemetrySaccade" class="text-cyan-300 font-mono">NORMAL</span></div>
+                    <div class="flex justify-between"><span>LIVENESS CONFIRM:</span> <span id="telemetryLiveness" class="text-amber-400 font-mono">PENDING</span></div>
+                </div>
+            </div>
+
+            <div id="iridologyPanel" class="hidden bg-slate-950/70 border border-slate-800/80 p-2.5 rounded backdrop-blur-sm">
+                <div class="text-cyan-400 font-orbitron mb-1 border-b border-slate-800 pb-1 flex justify-between">
+                    <span>RAYID EMANATION MAP</span>
+                    <i class="fa-solid fa-sun text-cyan-400"></i>
+                </div>
+                <div class="space-y-1 text-slate-400">
+                    <div class="flex justify-between"><span>STRUCTURE:</span> <span id="telemetryConstitution" class="text-cyan-300 font-mono">--</span></div>
+                    <div class="flex justify-between"><span>DOMINANT:</span> <span id="telemetryDominant" class="text-cyan-300 font-mono">--</span></div>
+                </div>
+                <div id="emanationReadout" class="space-y-0.5 text-slate-500 font-mono mt-1.5 pt-1.5 border-t border-slate-800"></div>
+            </div>
+
+            <div class="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded backdrop-blur-sm">
+                <div id="matchPanelTitle" class="text-cyan-400 font-orbitron mb-1 border-b border-slate-800 pb-1">VASCULAR MATCH</div>
+                <div class="w-full bg-slate-900 h-2 rounded overflow-hidden mb-1 border border-slate-800">
+                    <div id="matchProgressBar" class="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full w-0 transition-all duration-200"></div>
+                </div>
+                <div class="flex justify-between text-xs font-mono text-cyan-300">
+                    <span id="matchPanelLabel">PATTERN SYNC:</span>
+                    <span id="matchPercentage">0.0%</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="absolute right-3 top-24 bottom-28 z-20 hidden sm:flex flex-col justify-between w-48 pointer-events-none text-[11px] text-right">
+            <div class="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded backdrop-blur-sm">
+                <div class="text-cyan-400 font-orbitron mb-1 border-b border-slate-800 pb-1 flex justify-between">
+                    <i class="fa-solid fa-microchip text-cyan-400"></i>
+                    <span>ARG RECEPTOR</span>
+                </div>
+                <div class="space-y-1 text-slate-400 font-mono">
+                    <div>CIPHER: <span id="cipherStatus" class="text-cyan-300">LOCKED</span></div>
+                    <div>SECRET HASH: <span id="hashDisplay" class="text-xs text-slate-500">0x8F9A...</span></div>
+                    <div>BLINK VERIFY: <span id="blinkCountLabel" class="text-amber-400">0/2</span></div>
+                </div>
+            </div>
+
+            <div class="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded backdrop-blur-sm">
+                <div class="text-cyan-400 font-orbitron mb-1 border-b border-slate-800 pb-1">DIAGNOSTIC LOG</div>
+                <div id="diagnosticLog" class="h-20 overflow-hidden text-[10px] text-slate-400 font-mono text-left space-y-0.5">
+                    <div>> Initializing HUD...</div>
+                    <div>> Requesting camera...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROMPT MODAL / OVERLAY FOR ACCESS / PUZZLE ALERTS -->
+        <div id="resultModal" class="hidden absolute inset-x-6 top-1/3 z-50 bg-slate-950/95 border-2 border-cyan-400 p-6 rounded-xl shadow-2xl backdrop-blur-md text-center max-w-md mx-auto animate-bounce-short">
+            <div id="resultIcon" class="text-5xl mb-3 text-cyan-400">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <h2 id="resultTitle" class="font-orbitron text-2xl font-black text-cyan-400 glow-cyan mb-2 uppercase">
+                ACCESS GRANTED
+            </h2>
+            <p id="resultMessage" class="text-sm text-slate-300 font-mono mb-4">
+                Retinal vasculature verified. SUBJECT ID: AGENT 77-DELTA. ARG Glyph Unlocked: <span class="text-amber-300 font-bold">"PROMETHEUS-RISES"</span>
+            </p>
+            <div class="flex gap-2 justify-center">
+                <button id="copyCipherBtn" onclick="copyCipherToClipboard()" class="bg-cyan-950 hover:bg-cyan-900 border border-cyan-500 text-cyan-300 px-4 py-2 rounded text-xs font-orbitron transition">
+                    <i class="fa-regular fa-copy mr-1"></i> COPY CIPHER
+                </button>
+                <button onclick="closeResultModal()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 px-4 py-2 rounded text-xs font-orbitron transition">
+                    DISMISS
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- MOBILE STATS BAR: the side HUD panels above are desktop-only (hidden sm:flex,
+         no room next to the eye on a phone). This condensed line keeps the core
+         readout - including the Rayid emanation reading - visible on narrow screens. -->
+    <div id="mobileStatsBar" class="sm:hidden relative z-40 bg-slate-950/90 border-t border-slate-800/80 px-3 py-1.5 text-center overflow-hidden">
+        <span id="mobileStatsLine" class="text-[10px] font-mono text-slate-400 tracking-wide whitespace-nowrap">PUPIL: <span class="text-cyan-300">--</span> &middot; IRIS: <span class="text-cyan-300">--</span> &middot; SYNC: <span class="text-cyan-300">0.0%</span></span>
+    </div>
+
+    <!-- BOTTOM NAVIGATION & CONTROL DECK (Mobile friendly) -->
+    <div class="relative z-40 bg-slate-950/95 border-t border-slate-800 p-3 sm:p-4">
+        <div class="max-w-xl mx-auto flex flex-col gap-2.5">
+            
+            <!-- Primary Action & Status Indicator Bar -->
+            <div class="flex items-center justify-between gap-2">
+                
+                <!-- Main Trigger Button -->
+                <button id="scanButton" onclick="handleMainScanClick()" class="flex-1 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 border border-cyan-400/80 text-white font-orbitron py-3 px-4 rounded-lg shadow-lg flex items-center justify-center gap-2 text-xs sm:text-base font-bold tracking-wide sm:tracking-wider whitespace-nowrap transition-all active:scale-95">
+                    <i class="fa-solid fa-expand text-cyan-200 animate-pulse"></i>
+                    <span id="scanButtonText">INITIATE RETINAL SCAN</span>
+                </button>
+
+                <!-- Audio Toggle -->
+                <button id="audioToggleBtn" onclick="toggleAudio()" class="bg-slate-900 border border-slate-700 text-slate-300 hover:text-cyan-400 p-3 rounded-lg flex items-center justify-center w-12 h-12 transition">
+                    <i id="audioIcon" class="fa-solid fa-volume-high text-lg"></i>
+                </button>
+
+                <!-- Settings / ARG Tools Drawer Trigger -->
+                <button onclick="toggleSettingsDrawer()" class="bg-slate-900 border border-slate-700 text-slate-300 hover:text-cyan-400 p-3 rounded-lg flex items-center justify-center w-12 h-12 transition">
+                    <i class="fa-solid fa-sliders text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Quick Mode Selectors for ARG Host/Player -->
+            <div class="grid grid-cols-4 gap-1.5 text-[10px] font-orbitron">
+                <button onclick="setScanMode('retinal')" id="modeBtnRetinal" class="bg-cyan-950/80 border border-cyan-500 text-cyan-300 py-1.5 rounded text-center truncate uppercase">
+                    RETINAL
+                </button>
+                <button onclick="setScanMode('iris')" id="modeBtnIris" class="bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-300 py-1.5 rounded text-center truncate uppercase">
+                    IRIS TOPOLOGY
+                </button>
+                <button onclick="setScanMode('liveness')" id="modeBtnLiveness" class="bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-300 py-1.5 rounded text-center truncate uppercase">
+                    BLINK VERIFY
+                </button>
+                <button onclick="setScanMode('cipher')" id="modeBtnCipher" class="bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-300 py-1.5 rounded text-center uppercase">
+                    ARG CIPHER
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS & ARG CUSTOMIZATION DRAWER -->
+    <div id="settingsDrawer" class="hidden fixed inset-x-0 bottom-0 z-50 bg-slate-950/98 border-t-2 border-cyan-500 p-5 rounded-t-2xl shadow-2xl backdrop-blur-xl transition-all duration-300 max-w-2xl mx-auto max-h-[85vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+            <h3 class="font-orbitron font-bold text-lg text-cyan-400 flex items-center gap-2">
+                <i class="fa-solid fa-gear"></i> ARG SCANNER CONTROLS
+            </h3>
+            <button onclick="toggleSettingsDrawer()" class="text-slate-400 hover:text-white text-xl">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="space-y-4 font-mono text-xs">
+            <!-- Theme Color Switcher -->
+            <div>
+                <label class="block text-slate-400 mb-1 font-orbitron">HUD PALETTE / SYMBOLOLOGY</label>
+                <div class="grid grid-cols-4 gap-2">
+                    <button onclick="setHUDTheme('cyan')" class="p-2 rounded border border-cyan-500 bg-cyan-950/60 text-cyan-300 font-bold text-center">CYAN</button>
+                    <button onclick="setHUDTheme('crimson')" class="p-2 rounded border border-rose-500 bg-rose-950/60 text-rose-300 font-bold text-center">CRIMSON</button>
+                    <button onclick="setHUDTheme('amber')" class="p-2 rounded border border-amber-500 bg-amber-950/60 text-amber-300 font-bold text-center">AMBER</button>
+                    <button onclick="setHUDTheme('matrix')" class="p-2 rounded border border-emerald-500 bg-emerald-950/60 text-emerald-300 font-bold text-center">MATRIX</button>
+                </div>
+            </div>
+
+            <!-- ARG Puzzle Customization -->
+            <div class="border-t border-slate-800 pt-3">
+                <label class="block text-slate-400 mb-1 font-orbitron">ARG HIDDEN CIPHER TEXT</label>
+                <input type="text" id="argCipherInput" value="CIPHER-DELTA-99" onchange="updateARGCipher(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-cyan-300 focus:outline-none focus:border-cyan-400">
+                <p class="text-[10px] text-slate-500 mt-1">This text appears encoded in the retinal blood vessel nodes during a successful scan.</p>
+            </div>
+
+            <!-- Simulated Mode Toggles -->
+            <div class="border-t border-slate-800 pt-3 flex items-center justify-between">
+                <div>
+                    <div class="text-slate-300 font-orbitron">SIMULATED OCULAR TARGET</div>
+                    <div class="text-[10px] text-slate-500">Enable synthesized eye image if no camera/eye present</div>
+                </div>
+                <input type="checkbox" id="simulatedEyeToggle" onchange="toggleSimulatedEye(this.checked)" class="w-5 h-5 accent-cyan-500 rounded cursor-pointer">
+            </div>
+
+            <!-- System Breach / Glitch Simulator -->
+            <div class="border-t border-slate-800 pt-3 flex justify-between items-center">
+                <div>
+                    <div class="text-rose-400 font-orbitron">SYSTEM OVERRIDE / BREACH</div>
+                    <div class="text-[10px] text-slate-500">Trigger simulated alien/hacker UI takeover</div>
+                </div>
+                <button onclick="triggerGlitchBreach()" class="bg-rose-950 hover:bg-rose-900 border border-rose-600 text-rose-300 px-3 py-1.5 rounded font-orbitron text-[11px]">
+                    TRIGGER BREACH
+                </button>
+            </div>
+
+            <!-- Security Clearance Config -->
+            <div class="border-t border-slate-800 pt-3">
+                <label class="block text-slate-400 mb-1 font-orbitron">SECURITY CLEARANCE TITLE</label>
+                <select id="clearanceSelect" onchange="changeClearance(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-300">
+                    <option value="LEVEL 1 CLEARANCE">LEVEL 1 - VISITOR PASS</option>
+                    <option value="LEVEL 4 CLEARANCE" selected>LEVEL 4 - RESEARCHER</option>
+                    <option value="LEVEL 5 - TOP SECRET">LEVEL 5 - TOP SECRET</option>
+                    <option value="EXECUTIVE OVERRIDE">EXECUTIVE OVERRIDE</option>
+                    <option value="SUBJECT #404 - UNKNOWN">SUBJECT #404 - UNKNOWN</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // LOADING VEIL REVEAL
+        // ==========================================
+        // Waits for the Tailwind CDN script to finish building its stylesheet
+        // before removing the veil, so the page never flashes unstyled.
+        (function () {
+            const veil = document.getElementById('loadingVeil');
+            if (!veil) return;
+            let hidden = false;
+            function hideVeil() {
+                if (hidden) return;
+                hidden = true;
+                veil.classList.add('veil-hidden');
+                setTimeout(() => veil.remove(), 500);
+            }
+            const twScript = document.getElementById('tailwindCdnScript');
+            if (twScript) {
+                twScript.addEventListener('load', () => {
+                    // Give Tailwind's in-browser JIT a couple of frames to inject its stylesheet
+                    requestAnimationFrame(() => requestAnimationFrame(hideVeil));
+                });
+                twScript.addEventListener('error', hideVeil);
+            }
+            // Safety net: never leave the veil up forever if the CDN is slow/blocked
+            setTimeout(hideVeil, 3000);
+        })();
+
+        // ==========================================
+        // GLOBAL STATE & CONFIGURATION
+        // ==========================================
+        // Global handler to catch media play AbortErrors from race conditions
+        window.addEventListener('unhandledrejection', (event) => {
+            if (event.reason && (event.reason.name === 'AbortError' || (typeof event.reason.message === 'string' && event.reason.message.includes('play()')))) {
+                event.preventDefault();
+            }
+        });
+
+        const state = {
+            isScanning: false,
+            audioEnabled: true,
+            hudTheme: 'cyan', // cyan, crimson, amber, matrix
+            scanMode: 'retinal', // retinal, iris, liveness, cipher
+            targetLocked: false,
+            eyeDetected: false,
+            eyePosition: { x: 0.5, y: 0.5, radius: 40 },
+            matchProgress: 0, // 0 to 100%
+            blinkCount: 0,
+            requiredBlinks: 2,
+            lastEyeStateOpen: true,
+            simulatedEye: false,
+            glitchActive: false,
+            cipherCode: "CIPHER-DELTA-99",
+            clearanceText: "LEVEL 4 CLEARANCE",
+            vascularNodes: [],
+            cameraActive: false,
+            zoomLevel: 1,
+            maxZoom: 2.4,
+            iridologyChart: null,
+            glyphReveal: 0,
+            lastEyeSeenAt: 0,
+            abortMessageUntil: 0
+        };
+
+        const SCAN_BUTTON_LABELS = {
+            retinal: 'INITIATE RETINAL SCAN',
+            iris: 'INITIATE IRIS SCAN',
+            liveness: 'INITIATE LIVENESS CHECK',
+            cipher: 'INITIATE CIPHER SCAN'
+        };
+
+        // A scan requires the eye to stay present for its full duration. A single
+        // dropped MediaPipe frame shouldn't fail the scan, but losing the eye for
+        // longer than this aborts it outright rather than letting it silently idle.
+        const EYE_LOST_GRACE_MS = 600;
+
+        // DOM Element Cache
+        const webcamElem = document.getElementById('webcam');
+        const hudCanvas = document.getElementById('hudCanvas');
+        const ctx = hudCanvas.getContext('2d');
+        const simulatedEyeCanvas = document.getElementById('simulatedEyeCanvas');
+        const simCtx = simulatedEyeCanvas.getContext('2d');
+        // Offscreen buffer holding the raw (unzoomed) frame each tick, so we can
+        // crop + magnify around the detected eye without re-fetching the video frame.
+        const sourceCanvas = document.createElement('canvas');
+        const sourceCtx = sourceCanvas.getContext('2d');
+        const targetLockStatus = document.getElementById('targetLockStatus');
+        const matchProgressBar = document.getElementById('matchProgressBar');
+        const matchPercentage = document.getElementById('matchPercentage');
+        const scanButtonText = document.getElementById('scanButtonText');
+        const telemetryPupil = document.getElementById('telemetryPupil');
+        const telemetryIris = document.getElementById('telemetryIris');
+        const telemetryLiveness = document.getElementById('telemetryLiveness');
+        const blinkCountLabel = document.getElementById('blinkCountLabel');
+        const diagnosticLog = document.getElementById('diagnosticLog');
+
+        // WEB AUDIO API SYNTHESIZER
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // Sci-Fi Sound Synthesizer Functions
+        function playSciFiSound(type) {
+            if (!state.audioEnabled) return;
+            try {
+                initAudio();
+                const now = audioCtx.currentTime;
+
+                if (type === 'beep') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1200, now);
+                    osc.frequency.exponentialRampToValueAtTime(1800, now + 0.08);
+                    gain.gain.setValueAtTime(0.15, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.08);
+                } 
+                else if (type === 'lock') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(440, now);
+                    osc.frequency.setValueAtTime(880, now + 0.08);
+                    osc.frequency.setValueAtTime(1760, now + 0.16);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                } 
+                else if (type === 'granted') {
+                    [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+                        gain.gain.setValueAtTime(0.2, now + idx * 0.1);
+                        gain.gain.linearRampToValueAtTime(0.01, now + idx * 0.1 + 0.25);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(now + idx * 0.1);
+                        osc.stop(now + idx * 0.1 + 0.25);
+                    });
+                }
+                else if (type === 'glitch') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(150, now);
+                    osc.frequency.linearRampToValueAtTime(60, now + 0.3);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                }
+            } catch (e) {
+                console.log("Audio play error", e);
+            }
+        }
+
+        function logDiagnostic(msg) {
+            const entry = document.createElement('div');
+            entry.textContent = `> ${msg}`;
+            diagnosticLog.appendChild(entry);
+            if (diagnosticLog.childNodes.length > 8) {
+                diagnosticLog.removeChild(diagnosticLog.firstChild);
+            }
+            diagnosticLog.scrollTop = diagnosticLog.scrollHeight;
+        }
+
+        // ==========================================
+        // MEDIAPIPE FACE MESH SETUP
+        // ==========================================
+        let faceMesh = null;
+        let camera = null;
+
+        function setupFaceMesh() {
+            try {
+                faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                faceMesh.onResults(onFaceMeshResults);
+                logDiagnostic("MediaPipe Eye Detector loaded");
+
+                // Start Webcam
+                startWebcam();
+            } catch (err) {
+                logDiagnostic("AI detector fallback to simulation");
+                console.error("FaceMesh initialization error:", err);
+                state.simulatedEye = true;
+                document.getElementById('simulatedEyeToggle').checked = true;
+            }
+        }
+
+        function startWebcam() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+                }).then((stream) => {
+                    webcamElem.srcObject = stream;
+                    
+                    const playPromise = webcamElem.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch((err) => {
+                            // Suppress AbortError triggered when play request is interrupted by camera utils
+                            if (err.name !== 'AbortError') {
+                                console.warn("Video playback error:", err);
+                            }
+                        });
+                    }
+
+                    state.cameraActive = true;
+                    logDiagnostic("Camera stream connected");
+
+                    camera = new Camera(webcamElem, {
+                        onFrame: async () => {
+                            if (!state.simulatedEye && state.cameraActive) {
+                                try {
+                                    await faceMesh.send({ image: webcamElem });
+                                } catch (e) {
+                                    // Ignore dropped frame processing errors during stream switching
+                                }
+                            }
+                        },
+                        width: 1280,
+                        height: 720
+                    });
+                    
+                    camera.start().catch((err) => {
+                        logDiagnostic("Camera service initialized");
+                    });
+                }).catch((err) => {
+                    logDiagnostic("Camera blocked / unavailable");
+                    state.simulatedEye = true;
+                    document.getElementById('simulatedEyeToggle').checked = true;
+                });
+            } else {
+                state.simulatedEye = true;
+                document.getElementById('simulatedEyeToggle').checked = true;
+            }
+        }
+
+        // MediaPipe Frame Results Callback
+        function onFaceMeshResults(results) {
+            if (state.simulatedEye) return;
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+
+                // Left Eye Center Landmark (MediaPipe landmark #468 or #159/#145 eye bounds)
+                // Left Eye mesh indices: 33, 133, 159, 145, 468 (iris center)
+                const leftIris = landmarks[468] || landmarks[159];
+                const rightIris = landmarks[473] || landmarks[386];
+
+                // Calculate Eye Position relative to canvas
+                if (leftIris) {
+                    state.eyeDetected = true;
+
+                    // Mirror horizontal x for front facing camera
+                    const targetX = 1.0 - leftIris.x;
+                    const targetY = leftIris.y;
+
+                    // Smooth transition to eye target
+                    state.eyePosition.x += (targetX - state.eyePosition.x) * 0.25;
+                    state.eyePosition.y += (targetY - state.eyePosition.y) * 0.25;
+
+                    // Calculate Eye Distance/Radius estimate
+                    if (landmarks[33] && landmarks[133]) {
+                        const eyeWidth = Math.hypot(
+                            landmarks[33].x - landmarks[133].x,
+                            landmarks[33].y - landmarks[133].y
+                        );
+                        state.eyePosition.radius = Math.max(25, eyeWidth * hudCanvas.width * 0.6);
+                    }
+
+                    // Blink / Liveness Detection (EAR - Eye Aspect Ratio)
+                    if (landmarks[159] && landmarks[145]) {
+                        const eyeHeight = Math.hypot(
+                            landmarks[159].x - landmarks[145].x,
+                            landmarks[159].y - landmarks[145].y
+                        );
+                        const isOpen = eyeHeight > 0.018;
+
+                        if (state.lastEyeStateOpen && !isOpen) {
+                            // Blink occurred
+                            state.blinkCount++;
+                            blinkCountLabel.innerText = `${state.blinkCount}/${state.requiredBlinks}`;
+                            playSciFiSound('beep');
+                            logDiagnostic(`Blink detected (${state.blinkCount})`);
+
+                            if (state.blinkCount >= state.requiredBlinks) {
+                                telemetryLiveness.innerText = "VERIFIED";
+                                telemetryLiveness.className = "text-emerald-400 font-mono";
+                            }
+                        }
+                        state.lastEyeStateOpen = isOpen;
+                    }
+
+                    // Update Telemetry Displays
+                    telemetryPupil.innerText = `${(3.2 + Math.random() * 0.4).toFixed(1)} mm`;
+                    telemetryIris.innerText = `${(11.8 + Math.random() * 0.2).toFixed(1)} mm`;
+
+                }
+            } else {
+                state.eyeDetected = false;
+            }
+        }
+
+        // ==========================================
+        // CANVAS RENDERING ENGINE
+        // ==========================================
+        function generateVascularPattern() {
+            // Generate dynamic procedural tree of blood vessel lines radiating from center
+            const nodes = [];
+            const mainBranches = 7;
+            for (let i = 0; i < mainBranches; i++) {
+                const angle = (i / mainBranches) * Math.PI * 2 + Math.random() * 0.2;
+                let currentRadius = 10;
+                let currentAngle = angle;
+
+                const branchNodes = [{ r: currentRadius, a: currentAngle }];
+
+                for (let step = 0; step < 5; step++) {
+                    currentRadius += 12 + Math.random() * 10;
+                    currentAngle += (Math.random() - 0.5) * 0.3;
+                    branchNodes.push({ r: currentRadius, a: currentAngle });
+                }
+                nodes.push(branchNodes);
+            }
+            state.vascularNodes = nodes;
+        }
+        generateVascularPattern();
+
+        // ==========================================
+        // IRIDOLOGY / RAYID EMANATION CHART
+        // ==========================================
+        // Re-skinned iridology: instead of an organ chart, the iris is read for
+        // the seven player emanations already established for this ARG (see the
+        // Ludex-9000 disbalance scanner). Structure typing (Jewel / Stream) is
+        // lifted from the Rayid Method's collagen-fiber constitution reading.
+        const EMANATION_LABELS = {
+            agon:     { short: 'AGON', full: 'Agon (Competition)' },
+            alea:     { short: 'ALEA', full: 'Alea (Chance)' },
+            ilinx:    { short: 'ILNX', full: 'Ilinx (Vertigo)' },
+            prosopon: { short: 'PROS', full: 'Prosopon (Mask/Persona)' },
+            trishna:  { short: 'TRSH', full: 'Trishna (Desire)' },
+            ptoia:    { short: 'PTOI', full: 'Ptoia (Fear)' },
+            aluzinnu: { short: 'ALUZ', full: 'Aluzinnu (Beginnings/Endings)' }
+        };
+        const EMANATION_KEYS = Object.keys(EMANATION_LABELS);
+
+        function generateIridologyChart() {
+            const roll = Math.random();
+            const constitution = roll < 0.4 ? 'jewel' : (roll < 0.75 ? 'stream' : 'jewel-stream');
+            const waveByConstitution = { jewel: 0.03, stream: 0.2, 'jewel-stream': 0.11 };
+
+            const sectors = EMANATION_KEYS.map((key, i) => {
+                const angleStart = (i / EMANATION_KEYS.length) * Math.PI * 2;
+                const angleEnd = ((i + 1) / EMANATION_KEYS.length) * Math.PI * 2;
+                const reading = 0.25 + Math.random() * 0.7;
+                const fiberCount = 5 + Math.floor(Math.random() * 3);
+                const fibers = [];
+                for (let f = 0; f < fiberCount; f++) {
+                    fibers.push({
+                        angle: angleStart + ((f + 0.5) / fiberCount) * (angleEnd - angleStart),
+                        wave: waveByConstitution[constitution],
+                        seed: Math.random() * Math.PI * 2
+                    });
+                }
+                return { key, angleStart, angleEnd, reading, fibers };
+            });
+
+            const dominant = [...sectors].sort((a, b) => b.reading - a.reading)[0].key;
+            return { constitution, sectors, dominant };
+        }
+        state.iridologyChart = generateIridologyChart();
+
+        function renderIridologyReadout() {
+            const chart = state.iridologyChart;
+            if (!chart) return;
+            document.getElementById('telemetryConstitution').innerText = chart.constitution.toUpperCase();
+            document.getElementById('telemetryDominant').innerText = EMANATION_LABELS[chart.dominant].short;
+
+            const readout = document.getElementById('emanationReadout');
+            readout.innerHTML = chart.sectors.map((sector) => {
+                const label = EMANATION_LABELS[sector.key].short;
+                const pct = Math.round(sector.reading * 100);
+                const highlight = sector.key === chart.dominant ? 'text-cyan-300' : 'text-slate-500';
+                return `<div class="flex justify-between"><span>${label}</span><span class="${highlight} font-mono">${pct}%</span></div>`;
+            }).join('');
+        }
+
+        // Condensed one-line readout for narrow screens, where the side HUD panels
+        // are hidden. Mirrors whichever values the current mode's desktop panel is
+        // already showing, so it stays in sync without touching those update sites.
+        function syncMobileStatsBar() {
+            const line = document.getElementById('mobileStatsLine');
+            if (!line) return;
+
+            if (state.scanMode === 'iris') {
+                line.innerHTML = `STRUCTURE: <span class="text-cyan-300">${document.getElementById('telemetryConstitution').innerText}</span>`
+                    + ` &middot; DOMINANT: <span class="text-cyan-300">${document.getElementById('telemetryDominant').innerText}</span>`
+                    + ` &middot; SYNC: <span class="text-cyan-300">${matchPercentage.innerText}</span>`;
+            } else if (state.scanMode === 'liveness') {
+                line.innerHTML = `BLINK: <span class="text-cyan-300">${blinkCountLabel.innerText}</span>`
+                    + ` &middot; LIVENESS: <span class="${telemetryLiveness.className.includes('emerald') ? 'text-emerald-400' : 'text-amber-400'}">${telemetryLiveness.innerText}</span>`;
+            } else if (state.scanMode === 'cipher') {
+                line.innerHTML = `CIPHER: <span class="text-cyan-300">${document.getElementById('cipherStatus').innerText}</span>`
+                    + ` &middot; SYNC: <span class="text-cyan-300">${matchPercentage.innerText}</span>`;
+            } else {
+                line.innerHTML = `PUPIL: <span class="text-cyan-300">${telemetryPupil.innerText}</span>`
+                    + ` &middot; IRIS: <span class="text-cyan-300">${telemetryIris.innerText}</span>`
+                    + ` &middot; SYNC: <span class="text-cyan-300">${matchPercentage.innerText}</span>`;
+            }
+        }
+
+        // Draws the radial emanation wheel around the iris: sector dividers,
+        // Rayid-style fibers (straight = Jewel, wavy = Stream), and labels.
+        function drawIridologyChart(cx, cy, eyeRadius, colors) {
+            const chart = state.iridologyChart;
+            if (!chart) return;
+            const t = Date.now() * 0.0004;
+
+            chart.sectors.forEach((sector) => {
+                ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(cx + Math.cos(sector.angleStart) * eyeRadius * 0.38, cy + Math.sin(sector.angleStart) * eyeRadius * 0.38);
+                ctx.lineTo(cx + Math.cos(sector.angleStart) * eyeRadius * 1.1, cy + Math.sin(sector.angleStart) * eyeRadius * 1.1);
+                ctx.stroke();
+
+                sector.fibers.forEach((fiber) => {
+                    ctx.beginPath();
+                    const steps = 12;
+                    for (let s = 0; s <= steps; s++) {
+                        const frac = s / steps;
+                        const r = eyeRadius * (0.38 + frac * 0.72);
+                        const wobble = Math.sin(frac * Math.PI * 3 + fiber.seed + t) * fiber.wave * r;
+                        const a = fiber.angle + wobble / r;
+                        const px = cx + Math.cos(a) * r;
+                        const py = cy + Math.sin(a) * r;
+                        if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                    }
+                    const isDominant = sector.key === chart.dominant;
+                    ctx.strokeStyle = isDominant ? colors.primary : `rgba(255,255,255,${0.15 + sector.reading * 0.35})`;
+                    ctx.lineWidth = isDominant ? 1.5 : 1;
+                    ctx.stroke();
+                });
+
+                const midAngle = (sector.angleStart + sector.angleEnd) / 2;
+                const lx = cx + Math.cos(midAngle) * eyeRadius * 1.28;
+                const ly = cy + Math.sin(midAngle) * eyeRadius * 1.28;
+                ctx.font = '9px "Share Tech Mono"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = sector.key === chart.dominant ? colors.primary : 'rgba(226,232,240,0.55)';
+                ctx.fillText(EMANATION_LABELS[sector.key].short, lx, ly);
+            });
+        }
+
+        // ==========================================
+        // SURFACING GLYPH (placeholder: winking infinity)
+        // ==========================================
+        // Resolves into focus at the center of the pupil as though it were being
+        // called up from underneath — blurred/dim at low reveal, crisp/bright at
+        // full reveal — then periodically "winks" by squashing its right lobe
+        // shut like a closing eyelid. Swap the vector stroke below for
+        // ctx.drawImage(glyphImage, ...) later to use a real asset.
+        function drawSurfacingGlyph(cx, cy, pupilRadius, reveal, colors) {
+            if (reveal <= 0.015) return;
+            const eased = reveal * reveal * (3 - 2 * reveal);
+            const scale = pupilRadius * 0.62 * (0.65 + 0.35 * eased);
+            const blurPx = (1 - eased) * 9;
+            const alpha = Math.min(1, eased * 1.35);
+
+            const cycle = (Date.now() * 0.001) % 4.5;
+            let winkSquash = 1;
+            if (eased > 0.55 && cycle > 4.0) {
+                winkSquash = 1 - Math.sin(((cycle - 4.0) / 0.5) * Math.PI) * 0.85;
+            }
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.globalAlpha = alpha;
+            if (blurPx > 0.4) ctx.filter = `blur(${blurPx.toFixed(1)}px)`;
+            ctx.shadowColor = colors.primary;
+            ctx.shadowBlur = 16 * eased;
+            ctx.strokeStyle = '#f8fafc';
+            ctx.lineWidth = Math.max(1.4, scale * 0.055);
+
+            ctx.beginPath();
+            const steps = 72;
+            for (let i = 0; i <= steps; i++) {
+                const angle = (i / steps) * Math.PI * 2;
+                const denom = 1 + Math.sin(angle) * Math.sin(angle);
+                const x = (scale * Math.cos(angle)) / denom;
+                let y = (scale * Math.cos(angle) * Math.sin(angle)) / denom;
+                if (x > 0) y *= winkSquash;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+
+        function getThemeColors() {
+            switch (state.hudTheme) {
+                case 'crimson':
+                    return { primary: '#ff0055', secondary: 'rgba(255, 0, 85, 0.3)', text: 'text-rose-400' };
+                case 'amber':
+                    return { primary: '#ffb700', secondary: 'rgba(255, 183, 0, 0.3)', text: 'text-amber-400' };
+                case 'matrix':
+                    return { primary: '#00ff66', secondary: 'rgba(0, 255, 102, 0.3)', text: 'text-emerald-400' };
+                default: // cyan
+                    return { primary: '#00f3ff', secondary: 'rgba(0, 243, 255, 0.3)', text: 'text-cyan-400' };
+            }
+        }
+
+        function resizeCanvas() {
+            hudCanvas.width = hudCanvas.clientWidth;
+            hudCanvas.height = hudCanvas.clientHeight;
+            sourceCanvas.width = hudCanvas.width;
+            sourceCanvas.height = hudCanvas.height;
+            simulatedEyeCanvas.width = 300;
+            simulatedEyeCanvas.height = 300;
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Render Synthetic Simulated Eye for testing/fallback
+        function drawSimulatedEye() {
+            const w = simulatedEyeCanvas.width;
+            const h = simulatedEyeCanvas.height;
+            simCtx.clearRect(0, 0, w, h);
+
+            // Sclera
+            simCtx.fillStyle = '#1e293b';
+            simCtx.beginPath();
+            simCtx.arc(w / 2, h / 2, 90, 0, Math.PI * 2);
+            simCtx.fill();
+
+            // Iris Gradient
+            const irisGrad = simCtx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, 60);
+            irisGrad.addColorStop(0, '#0284c7');
+            irisGrad.addColorStop(0.7, '#0369a1');
+            irisGrad.addColorStop(1, '#0f172a');
+            simCtx.fillStyle = irisGrad;
+            simCtx.beginPath();
+            simCtx.arc(w / 2, h / 2, 60, 0, Math.PI * 2);
+            simCtx.fill();
+
+            // Pupil
+            simCtx.fillStyle = '#020617';
+            simCtx.beginPath();
+            simCtx.arc(w / 2, h / 2, 22, 0, Math.PI * 2);
+            simCtx.fill();
+
+            // Reflection
+            simCtx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            simCtx.beginPath();
+            simCtx.arc(w / 2 - 18, h / 2 - 18, 8, 0, Math.PI * 2);
+            simCtx.fill();
+        }
+
+        // MAIN ANIMATION LOOP
+        function renderLoop() {
+            const colors = getThemeColors();
+            const now = Date.now();
+
+            // 1. Draw the raw frame (video or simulated eye) into an offscreen buffer
+            sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+            if (state.cameraActive && webcamElem.readyState >= 2 && !state.simulatedEye) {
+                sourceCtx.save();
+                // Mirror horizontally for front camera
+                sourceCtx.translate(sourceCanvas.width, 0);
+                sourceCtx.scale(-1, 1);
+                sourceCtx.drawImage(webcamElem, 0, 0, sourceCanvas.width, sourceCanvas.height);
+                sourceCtx.restore();
+            } else if (state.simulatedEye) {
+                drawSimulatedEye();
+                sourceCtx.fillStyle = '#0b1220';
+                sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+                sourceCtx.drawImage(simulatedEyeCanvas, sourceCanvas.width / 2 - 150, sourceCanvas.height / 2 - 150, 300, 300);
+
+                // Update simulated eye location
+                state.eyeDetected = true;
+                state.eyePosition.x = 0.5 + Math.sin(now * 0.001) * 0.03;
+                state.eyePosition.y = 0.5 + Math.cos(now * 0.001) * 0.02;
+                state.eyePosition.radius = 60;
+            }
+
+            // 2. Eye position/radius in SOURCE (unzoomed) space
+            const srcEyeX = state.eyePosition.x * sourceCanvas.width;
+            const srcEyeY = state.eyePosition.y * sourceCanvas.height;
+            const srcEyeRadius = state.eyePosition.radius || 50;
+
+            // 3. Animate a digital zoom in toward the eye once it's locked
+            const targetZoom = state.eyeDetected ? state.maxZoom : 1.0;
+            state.zoomLevel += (targetZoom - state.zoomLevel) * 0.045;
+
+            // 4. Crop + magnify around the eye, draw into the visible canvas
+            ctx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+            const cropW = sourceCanvas.width / state.zoomLevel;
+            const cropH = sourceCanvas.height / state.zoomLevel;
+            const cropX = Math.max(0, Math.min(sourceCanvas.width - cropW, srcEyeX - cropW / 2));
+            const cropY = Math.max(0, Math.min(sourceCanvas.height - cropH, srcEyeY - cropH / 2));
+            ctx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, hudCanvas.width, hudCanvas.height);
+
+            // 5. Eye position/radius in DISPLAY (zoomed) space — used by everything below
+            const zoomScale = hudCanvas.width / cropW;
+            const eyePixelX = (srcEyeX - cropX) * zoomScale;
+            const eyePixelY = (srcEyeY - cropY) * zoomScale;
+            const eyeRadius = srcEyeRadius * zoomScale;
+
+            // Track continuous eye presence: a scan must keep the eye in frame for
+            // its full duration, not just at the moment it was started. A brief
+            // tracking dropout is tolerated (EYE_LOST_GRACE_MS); anything longer
+            // aborts the scan outright instead of letting it silently idle.
+            if (state.eyeDetected) {
+                state.lastEyeSeenAt = now;
+            } else if (state.isScanning && (now - state.lastEyeSeenAt > EYE_LOST_GRACE_MS)) {
+                abortScan();
+            }
+
+            // Update DOM Target HUD Position
+            const targetFrame = document.getElementById('targetFrame');
+            if (now < state.abortMessageUntil) {
+                targetFrame.style.transform = `translate(0px, 0px) scale(1)`;
+                targetLockStatus.innerText = "TARGET LOST - SCAN ABORTED";
+                targetLockStatus.className = "bg-slate-900/90 border border-rose-500/80 text-rose-400 font-orbitron text-[11px] px-3 py-1 rounded tracking-widest uppercase glow-red";
+            } else if (state.eyeDetected) {
+                const frameScale = 1 + (state.zoomLevel - 1) * 0.1;
+                targetFrame.style.transform = `translate(${eyePixelX - hudCanvas.width / 2}px, ${eyePixelY - hudCanvas.height / 2}px) scale(${frameScale.toFixed(3)})`;
+                targetLockStatus.innerText = state.isScanning ? "ANALYZING OCULAR PATTERN..." : "EYE LOCKED - READY TO SCAN";
+                targetLockStatus.className = "bg-slate-900/90 border border-emerald-500/80 text-emerald-400 font-orbitron text-[11px] px-3 py-1 rounded tracking-widest uppercase glow-green";
+            } else {
+                targetFrame.style.transform = `translate(0px, 0px) scale(1)`;
+                targetLockStatus.innerText = "SEARCHING FOR OCULAR TARGET...";
+                targetLockStatus.className = "bg-slate-900/90 border border-cyan-500/50 text-cyan-400 font-orbitron text-[11px] px-3 py-1 rounded tracking-widest uppercase glow-cyan";
+            }
+
+            // 6. Draw Sci-Fi Eye Overlay Graphics
+            if (state.eyeDetected) {
+                ctx.save();
+
+                // Draw Iris Target Ring
+                ctx.strokeStyle = colors.primary;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = colors.primary;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(eyePixelX, eyePixelY, eyeRadius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Inner Pupil Reticle
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(eyePixelX, eyePixelY, eyeRadius * 0.35, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // 7. Mode-specific radial overlay: blood vessels, or the iridology/Rayid emanation wheel
+                if (state.scanMode === 'iris') {
+                    drawIridologyChart(eyePixelX, eyePixelY, eyeRadius, colors);
+                } else if (state.isScanning || state.scanMode === 'retinal') {
+                    ctx.strokeStyle = colors.primary;
+                    ctx.lineWidth = 1.5;
+
+                    state.vascularNodes.forEach((branch) => {
+                        ctx.beginPath();
+                        branch.forEach((pt, idx) => {
+                            const px = eyePixelX + Math.cos(pt.a) * pt.r * (eyeRadius / 40);
+                            const py = eyePixelY + Math.sin(pt.a) * pt.r * (eyeRadius / 40);
+                            if (idx === 0) ctx.moveTo(px, py);
+                            else ctx.lineTo(px, py);
+                        });
+                        ctx.stroke();
+
+                        // Vascular Node Points
+                        const lastPt = branch[branch.length - 1];
+                        const nX = eyePixelX + Math.cos(lastPt.a) * lastPt.r * (eyeRadius / 40);
+                        const nY = eyePixelY + Math.sin(lastPt.a) * lastPt.r * (eyeRadius / 40);
+                        ctx.fillStyle = colors.primary;
+                        ctx.fillRect(nX - 2, nY - 2, 4, 4);
+                    });
+                }
+
+                // 8. Placeholder glyph surfacing from within the pupil
+                drawSurfacingGlyph(eyePixelX, eyePixelY, eyeRadius * 0.35, state.glyphReveal, colors);
+
+                // 9. ARG Secret Cipher Glyph Rendering
+                if (state.scanMode === 'cipher' && state.matchProgress > 50) {
+                    ctx.font = '10px "Share Tech Mono"';
+                    ctx.fillStyle = '#ffb700';
+                    ctx.shadowColor = '#ffb700';
+                    ctx.shadowBlur = 8;
+                    ctx.fillText(`CIPHER: ${state.cipherCode}`, eyePixelX - 50, eyePixelY - eyeRadius - 15);
+                }
+
+                ctx.restore();
+            }
+
+            // 10. Glyph reveal target: called to the surface while scanning, fully shown on completion
+            let glyphTarget = 0.04;
+            if (state.isScanning) glyphTarget = state.matchProgress / 100;
+            else if (state.matchProgress >= 100) glyphTarget = 1;
+            state.glyphReveal += (glyphTarget - state.glyphReveal) * 0.05;
+
+            // 11. Handle Active Scan Progress Engine
+            if (state.isScanning && state.eyeDetected) {
+                state.matchProgress += 0.6;
+                if (Math.random() < 0.15) playSciFiSound('beep');
+
+                if (state.matchProgress >= 100) {
+                    state.matchProgress = 100;
+                    state.isScanning = false;
+                    playSciFiSound('granted');
+                    showAccessGrantedModal();
+                }
+
+                matchProgressBar.style.width = `${state.matchProgress}%`;
+                matchPercentage.innerText = `${state.matchProgress.toFixed(1)}%`;
+            }
+
+            syncMobileStatsBar();
+            document.getElementById('simModeBadge').classList.toggle('hidden', !state.simulatedEye);
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        // ==========================================
+        // INTERACTIVE USER ACTION CONTROLS
+        // ==========================================
+        function handleMainScanClick() {
+            initAudio();
+
+            if (!state.eyeDetected && !state.simulatedEye) {
+                logDiagnostic("ERROR: No eye detected in frame");
+                targetLockStatus.innerText = "NO OCULAR TARGET IN RANGE!";
+                targetLockStatus.className = "bg-slate-900/90 border border-rose-500/80 text-rose-400 font-orbitron text-[11px] px-3 py-1 rounded tracking-widest uppercase glow-red";
+                playSciFiSound('glitch');
+                return;
+            }
+
+            if (state.scanMode === 'iris') {
+                state.iridologyChart = generateIridologyChart();
+                renderIridologyReadout();
+            }
+
+            state.isScanning = true;
+            state.matchProgress = 0;
+            scanButtonText.innerText = state.scanMode === 'iris' ? "READING EMANATION PATTERN..." : "ANALYZING RETINAL PATTERN...";
+            playSciFiSound('lock');
+            logDiagnostic("Initiated ocular scan sequence");
+        }
+
+        // Called when the eye has been missing for longer than EYE_LOST_GRACE_MS
+        // during an active scan. The scan must be restarted from zero with the
+        // eye continuously present - losing it mid-scan can't just pause and
+        // silently resume later, or the "must be present to unlock" guarantee
+        // is meaningless.
+        function abortScan() {
+            state.isScanning = false;
+            state.matchProgress = 0;
+            state.abortMessageUntil = Date.now() + 1800;
+            matchProgressBar.style.width = '0%';
+            matchPercentage.innerText = '0.0%';
+            scanButtonText.innerText = SCAN_BUTTON_LABELS[state.scanMode] || SCAN_BUTTON_LABELS.retinal;
+            playSciFiSound('glitch');
+            logDiagnostic("SCAN ABORTED: ocular target lost mid-scan");
+        }
+
+        function setScanMode(mode) {
+            state.scanMode = mode;
+            logDiagnostic(`Mode changed: ${mode.toUpperCase()}`);
+
+            const modes = ['retinal', 'iris', 'liveness', 'cipher'];
+            modes.forEach(m => {
+                const btn = document.getElementById(`modeBtn${m.charAt(0).toUpperCase() + m.slice(1)}`);
+                if (btn) {
+                    if (m === mode) {
+                        btn.className = "bg-cyan-950/80 border border-cyan-500 text-cyan-300 py-1.5 rounded text-center truncate uppercase font-bold";
+                    } else {
+                        btn.className = "bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-300 py-1.5 rounded text-center truncate uppercase";
+                    }
+                }
+            });
+
+            document.getElementById('scanModeLabel').innerText = `MODE: ${mode.toUpperCase()}`;
+
+            const zoomByMode = { retinal: 2.4, iris: 2.7, liveness: 1.9, cipher: 2.4 };
+            state.maxZoom = zoomByMode[mode] || 2.4;
+
+            const telemetryPanel = document.getElementById('telemetryPanel');
+            const iridologyPanel = document.getElementById('iridologyPanel');
+            const matchPanelTitle = document.getElementById('matchPanelTitle');
+            const matchPanelLabel = document.getElementById('matchPanelLabel');
+            if (mode === 'iris') {
+                state.iridologyChart = generateIridologyChart();
+                renderIridologyReadout();
+                telemetryPanel.classList.add('hidden');
+                iridologyPanel.classList.remove('hidden');
+                matchPanelTitle.innerText = 'EMANATION SYNC';
+                matchPanelLabel.innerText = 'RAYID SYNC:';
+            } else {
+                telemetryPanel.classList.remove('hidden');
+                iridologyPanel.classList.add('hidden');
+                matchPanelTitle.innerText = 'VASCULAR MATCH';
+                matchPanelLabel.innerText = 'PATTERN SYNC:';
+            }
+
+            if (!state.isScanning) {
+                scanButtonText.innerText = SCAN_BUTTON_LABELS[mode] || SCAN_BUTTON_LABELS.retinal;
+            }
+        }
+
+        function setHUDTheme(theme) {
+            state.hudTheme = theme;
+            logDiagnostic(`Theme set to ${theme}`);
+
+            const targetFrame = document.getElementById('targetFrame');
+            const outerRing = document.getElementById('outerRing');
+            const laserLine = document.getElementById('laserLine');
+
+            if (theme === 'crimson') {
+                outerRing.className = "absolute inset-0 rounded-full border-2 border-dashed border-rose-500/40 animate-spin-slow";
+                laserLine.className = "absolute w-full h-0.5 bg-rose-500 shadow-[0_0_15px_#ff0055] animate-radar-sweep opacity-80";
+            } else if (theme === 'amber') {
+                outerRing.className = "absolute inset-0 rounded-full border-2 border-dashed border-amber-500/40 animate-spin-slow";
+                laserLine.className = "absolute w-full h-0.5 bg-amber-400 shadow-[0_0_15px_#ffb700] animate-radar-sweep opacity-80";
+            } else if (theme === 'matrix') {
+                outerRing.className = "absolute inset-0 rounded-full border-2 border-dashed border-emerald-500/40 animate-spin-slow";
+                laserLine.className = "absolute w-full h-0.5 bg-emerald-400 shadow-[0_0_15px_#00ff66] animate-radar-sweep opacity-80";
+            } else {
+                outerRing.className = "absolute inset-0 rounded-full border-2 border-dashed border-cyan-500/40 animate-spin-slow";
+                laserLine.className = "absolute w-full h-0.5 bg-cyan-400 shadow-[0_0_15px_#00f3ff] animate-radar-sweep opacity-80";
+            }
+        }
+
+        function toggleAudio() {
+            state.audioEnabled = !state.audioEnabled;
+            const icon = document.getElementById('audioIcon');
+            icon.className = state.audioEnabled ? "fa-solid fa-volume-high text-lg text-cyan-400" : "fa-solid fa-volume-xmark text-lg text-slate-600";
+        }
+
+        function toggleSettingsDrawer() {
+            const drawer = document.getElementById('settingsDrawer');
+            drawer.classList.toggle('hidden');
+        }
+
+        function toggleSimulatedEye(enabled) {
+            state.simulatedEye = enabled;
+            logDiagnostic(`Simulated eye target: ${enabled ? 'ON' : 'OFF'}`);
+        }
+
+        function updateARGCipher(val) {
+            state.cipherCode = val || "CIPHER-DELTA-99";
+            logDiagnostic(`ARG Cipher updated`);
+        }
+
+        function changeClearance(val) {
+            state.clearanceText = val;
+            document.getElementById('clearanceBadge').innerText = val;
+            logDiagnostic(`Clearance level: ${val}`);
+        }
+
+        function triggerGlitchBreach() {
+            playSciFiSound('glitch');
+            document.body.classList.add('glitch-mode');
+            logDiagnostic("WARNING: UNORGANIZED BREACH DETECTED");
+
+            setTimeout(() => {
+                document.body.classList.remove('glitch-mode');
+            }, 3000);
+        }
+
+        function showAccessGrantedModal() {
+            const modal = document.getElementById('resultModal');
+            const icon = document.getElementById('resultIcon');
+            const title = document.getElementById('resultTitle');
+            const message = document.getElementById('resultMessage');
+            const copyBtn = document.getElementById('copyCipherBtn');
+
+            // A simulated target (dev/demo toggle, or a silent camera-permission
+            // fallback) can still run the full scan animation for testing, but it
+            // must never issue the real ARG cipher - only a genuinely tracked eye
+            // unlocks the clue.
+            if (state.simulatedEye) {
+                modal.classList.remove('border-cyan-400');
+                modal.classList.add('border-amber-400');
+                icon.className = "text-5xl mb-3 text-amber-400";
+                icon.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+                title.className = "font-orbitron text-2xl font-black text-amber-400 glow-amber mb-2 uppercase";
+                title.innerText = "SIMULATION ONLY";
+                message.innerHTML = `
+                    No real eye was verified - this run used a simulated ocular target, so no cipher was issued.<br>
+                    Disable <strong>Simulated Ocular Target</strong> in settings and scan a real eye to unlock the clue.
+                `;
+                copyBtn.classList.add('hidden');
+            } else {
+                modal.classList.remove('border-amber-400');
+                modal.classList.add('border-cyan-400');
+                icon.className = "text-5xl mb-3 text-cyan-400";
+                icon.innerHTML = '<i class="fa-solid fa-shield-halved"></i>';
+                title.className = "font-orbitron text-2xl font-black text-cyan-400 glow-cyan mb-2 uppercase";
+                title.innerText = "ACCESS GRANTED";
+                message.innerHTML = `
+                    Retinal vasculature pattern matches AEGIS Database.<br>
+                    <strong>CLEARANCE:</strong> ${state.clearanceText}<br>
+                    <strong>ARG UNLOCKED CIPHER:</strong> <span class="text-amber-300 font-bold">${state.cipherCode}</span>
+                `;
+                copyBtn.classList.remove('hidden');
+            }
+
+            modal.classList.remove('hidden');
+            scanButtonText.innerText = "SCAN COMPLETE";
+        }
+
+        function closeResultModal() {
+            document.getElementById('resultModal').classList.add('hidden');
+            scanButtonText.innerText = SCAN_BUTTON_LABELS[state.scanMode] || SCAN_BUTTON_LABELS.retinal;
+            state.matchProgress = 0;
+            matchProgressBar.style.width = '0%';
+            matchPercentage.innerText = '0.0%';
+        }
+
+        function copyCipherToClipboard() {
+            const el = document.createElement('textarea');
+            el.value = state.cipherCode;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            logDiagnostic("Cipher copied to clipboard");
+            alert("ARG Cipher copied: " + state.cipherCode);
+        }
+
+        // ==========================================
+        // APP INITIALIZATION ENTRYPOINT
+        // ==========================================
+        window.onload = function() {
+            resizeCanvas();
+            setupFaceMesh();
+            renderLoop();
+            logDiagnostic("AEGIS Retinal System Ready");
+        };
+    </script>
+</body>
+</html>
