@@ -1017,6 +1017,18 @@
 
         // MAIN ANIMATION LOOP
         function renderLoop() {
+            // Canvas sizing can race page layout on a cold load (e.g. the Tailwind
+            // CDN stylesheet landing a beat late) - resync if CSS layout has since
+            // given the canvas real dimensions, and skip this frame's draw rather
+            // than crash on a zero-sized offscreen buffer if it's still not ready.
+            if (hudCanvas.clientWidth !== hudCanvas.width || hudCanvas.clientHeight !== hudCanvas.height) {
+                resizeCanvas();
+            }
+            if (hudCanvas.width === 0 || hudCanvas.height === 0 || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
+                requestAnimationFrame(renderLoop);
+                return;
+            }
+
             const colors = getThemeColors();
             const now = Date.now();
 
